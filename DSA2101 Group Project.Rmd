@@ -1,0 +1,249 @@
+---
+title: "DSA2101 Group Project"
+output: html_document
+date: "2025-04-07"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Main question: How do returning participants influence a country's performance in IMO, and has this relationship changed over time?
+
+## Library
+
+```{r}
+library(tidytuesdayR)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+```
+
+## Importing Data
+
+```{r tuesdata}
+tuesdata <- tidytuesdayR::tt_load('2024-09-24')
+```
+
+### Country Results
+
+cleaning here first for total
+
+```{r country_results_df}
+country_results_df <- tuesdata$country_results_df
+
+country_results_df %>%
+  summarise(across(everything(), ~ sum(is.na(.))))
+```
+
+### Individual Results
+
+cleaning here first for total
+
+```{r individual_results_df}
+individual_results_df <- tuesdata$individual_results_df
+
+individual_results_df %>% 
+  summarise(across(everything(), ~ sum(is.na(.))))
+```
+
+### Timeline
+
+```{r timeline_df}
+timeline_df <- tuesdata$timeline_df
+
+na_timeline <- timeline_df %>% 
+  summarise(across(everything(), ~ sum(is.na(.))))
+```
+
+## Data cleaning
+
+```{r removing na from country_results_df}
+country_results_df <- country_results_df %>%
+  mutate(team_size_male = ifelse(is.na(team_size_male), 0, team_size_male),
+         team_size_female = ifelse(is.na(team_size_female), 0, team_size_female),
+         team_size_all = ifelse(is.na(team_size_all), 0, team_size_all),
+         p1 = ifelse(is.na(p1), 0, p1),
+         p2 = ifelse(is.na(p2), 0, p2),
+         p3 = ifelse(is.na(p3), 0, p3),
+         p4 = ifelse(is.na(p4), 0, p4),
+         p5 = ifelse(is.na(p5), 0, p5),
+         p6 = ifelse(is.na(p6), 0, p6),
+         p7 = ifelse(is.na(p7), 0, p7),
+         awards_gold = ifelse(is.na(awards_gold), 0, awards_gold),
+         awards_silver = ifelse(is.na(awards_silver), 0, awards_silver),
+         awards_bronze = ifelse(is.na(awards_bronze), 0, awards_bronze),
+         awards_honorable_mentions = ifelse(is.na(awards_honorable_mentions), 0, awards_honorable_mentions),
+         leader = ifelse(is.na(leader), "None", leader),
+         deputy_leader = ifelse(is.na(deputy_leader), "None", deputy_leader))
+```
+
+```{r removing na from individual_results_df}
+individual_results_df <- individual_results_df %>%
+  mutate(p1 = ifelse(is.na(p1), 0, p1),
+         p2 = ifelse(is.na(p2), 0, p2),
+         p3 = ifelse(is.na(p3), 0, p3),
+         p4 = ifelse(is.na(p4), 0, p4),
+         p5 = ifelse(is.na(p5), 0, p5),
+         p6 = ifelse(is.na(p6), 0, p6),
+         p7 = ifelse(is.na(p7), 0, p7),
+         individual_rank = ifelse(is.na(individual_rank), 0, individual_rank),
+         award = ifelse(is.na(award), "None", award))
+
+```
+
+```{r removing na from timeline_df}
+timeline_df <- timeline_df %>%
+  mutate(female_contestant = ifelse(is.na(female_contestant), 0, female_contestant))
+```
+
+## Question 1
+
+Qn 1: How has the proportion of returning participants evolved over the years for each countries?
+
+Since there are a lot of countries, we scope into the top 5 countries in the latest year, and look into their past performances in the IMO.
+
+### Top 5 Coutries
+
+```{r top_5_countries_in_2024}
+top_5_countries_in_2024 <- country_results_df %>%
+  filter(year == 2024) %>%
+  mutate(total = rowSums(across(p1:p7))) %>%
+  arrange(desc(total), 
+          desc(awards_gold), 
+          desc(awards_silver), 
+          desc(awards_bronze), 
+          desc(awards_honorable_mentions)) %>%
+  head(5) %>%
+  pull(country)
+```
+
+### Check any missing record after 2000 year
+
+For simplicity, we only look at the data that is after 2000 year for those 5 countries
+
+```{r Check missing record}
+top_5_countries_results_df <- country_results_df %>%
+  filter(country %in% top_5_countries_in_2024, year >= 2000) %>%
+  group_by(country) %>%
+  arrange(country) %>%
+  summarise(count = n()) %>%
+  ungroup() %>%
+  glimpse()
+```
+
+Turns out that there is one missing record for India, but it should not be problem
+
+### Get all the participant and results of those countries
+
+Get to know which participant are returning participant
+
+```{r}
+# I marked the participant with 1 if he/she got more than 1 appearance in the df
+individual_return <- individual_results_df %>%
+  filter(country %in% top_5_countries_in_2024) %>%
+  arrange(contestant, year) %>%
+  group_by(contestant) %>%
+  mutate(appearance = row_number()) %>%
+  ungroup() %>%
+  mutate(returning = if_else(appearance > 1, 1, 0)) %>%
+  filter(year >= 2000)
+```
+
+```{r}
+top5_country_results <- country_results_df %>%
+  filter(country %in% top_5_countries_in_2024, year >= 2000)
+```
+
+### Get the proportion
+
+```{r Calculating the proportion}
+# since returning participant have 1 value of returning, so summing up them should give the total of returning participant, maybe
+returning_summary <- individual_return %>%
+  group_by(country, year) %>%
+  summarize(returning_count = sum(returning), .groups = "drop")
+
+returning_summary <- returning_summary %>%
+  left_join(
+    top5_country_results %>% select(country, year, team_size_all), 
+    by = c("country", "year")
+  ) %>%
+  mutate(proportion_returning = returning_count / team_size_all)
+```
+
+### Plotting
+
+```{r}
+ggplot(returning_summary, aes(x = year, y = proportion_returning, color = country)) +
+  geom_line() +
+  labs(
+    title = "Proportion of Returning Participants Over Time",
+    x = "Year",
+    y = "Proportion of Returning Participants"
+  )
+```
+
+## Question 2
+
+Qn 2: Do returning participants generally achieve higher score compared to first-time participants
+
+### Aggregating the data
+
+```{r}
+# Divide into two, one is the participant who only join one time, other is returning participant
+paired_individual <- top5_individual %>% 
+  group_by(contestant) %>%
+  filter(n() >= 2) %>%  # keep only those with 2+ appearances
+  ungroup() %>%
+  mutate(participant_type = if_else(appearance == 1, "Join only one time", "Returning participant"))
+```
+
+### Plotting
+
+```{r}
+ggplot(paired_individual, aes(x = participant_type, y = total, fill = participant_type)) +
+  geom_boxplot() +
+  labs(
+    title = "Score Comparison: First Attempt vs. Returning Attempt",
+    x = "Participant Type",
+    y = "Total Score"
+  ) +
+  theme_minimal()
+```
+
+## Question 3
+
+Qn 3: Does a higher proportion of returning participants on a team correlate with improved overall team performances?
+
+### Adding the column (total) for all country result
+
+```{r}
+team_performance <- top5_country_results %>%
+  mutate(total = p1 + p2 + p3 + p4 + p5 + p6 + p7) %>%
+  select(country, year, total)
+```
+
+### Join two tables to get proportion and total points together
+
+```{r}
+final_team_data <- returning_summary %>%
+  left_join(team_performance, by = c("country", "year"))
+```
+
+### Plotting
+
+```{r}
+# I used additional line to see the trend, looks like good bc we see improvement when the propotion goes up
+ggplot(final_team_data, aes(x = proportion_returning, y = total, color = country)) +
+  geom_point(size = 2) +
+  geom_smooth(method = "lm", se = FALSE) +
+  labs(
+    title = "Team Performance vs. Proportion of Returning Participants",
+    x = "Proportion of Returning Participants",
+    y = "Total Team Score"
+  ) +
+  theme_minimal()
+```
+
+
+
